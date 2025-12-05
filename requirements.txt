@@ -1,9 +1,14 @@
 Flask
+Flask-Cors
 requests
 aiohttp
+asyncio
 protobuf
-cryptography
+cfonts
 urllib3
 psutil
 pytz
+PyJWT
+cryptography
+pycryptodome
 gunicorn
