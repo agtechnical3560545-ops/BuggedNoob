@@ -233,7 +233,7 @@ def send_likes(uid):
 [11EAFD]━━━━━
 [FFB300]EMOTE BOT""
         else:
-            return f"""[C][B][FF0000]━━━━━
+            return "[C][B][11EAFD]━━━━━"
 [FFFFFF]❌ No Likes Sent!
 [FF6347]Player may have already claimed
 [FF0000]━━━━━"""
