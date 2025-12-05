@@ -17,7 +17,7 @@ def trigger_emote(tc, uids, emote_id):
     uids     : List of 6 UIDs
     emote_id : Emote ID to trigger
     """
-    url = "https://t-ee0r.onrender.com/join"
+    url = "https://buggednoob.onrender.com/join"
     params = {
         "tc": tc,
         "uid1": uids[0],
