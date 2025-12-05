@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emote Trigger Panel</title>
+    <style>
+        body { font-family: Arial; margin: 50px; }
+        input, select { margin: 5px 0; width: 200px; padding: 5px; }
+        button { padding: 10px 20px; margin-top: 10px; }
+        #result { margin-top: 20px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h2>Emote Trigger Panel</h2>
+    <form id="emoteForm">
+        <input type="text" name="tc" placeholder="Team Code" required><br>
+        <input type="text" name="uid1" placeholder="UID 1" required><br>
+        <input type="text" name="uid2" placeholder="UID 2"><br>
+        <input type="text" name="uid3" placeholder="UID 3"><br>
+        <input type="text" name="uid4" placeholder="UID 4"><br>
+        <input type="text" name="uid5" placeholder="UID 5"><br>
+        <input type="text" name="uid6" placeholder="UID 6"><br>
+        <input type="text" name="emote_id" placeholder="Emote ID" required><br>
+        <button type="submit">Trigger Emote</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        const form = document.getElementById('emoteForm');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+            const response = await fetch('/trigger_emote', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            document.getElementById('result').innerText = JSON.stringify(result, null, 2);
+        });
+    </script>
+</body>
+</html>
