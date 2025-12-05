@@ -34,17 +34,19 @@ def trigger_emote(tc, uids, emote_id):
     except Exception as e:
         return str(e)
 
-# -------- BOT LOOP FOR BACKGROUND THREAD --------
 def bot_loop():
     while True:
         try:
-            # Optional: automated trigger for testing
-            # response = trigger_emote("TEAM123", ["UID1","UID2","UID3","UID4","UID5","UID6"], "EMOTE123")
-            # print(response)
-            pass  # real bot code yaha dalna
+            # Yaha aapka real bot code ya periodic API trigger
+            response = trigger_emote(
+                "TEAM123", 
+                ["UID1","UID2","UID3","UID4","UID5","UID6"], 
+                "EMOTE123"
+            )
+            print("Bot Triggered:", response)
         except Exception as e:
             print("Bot Error:", e)
-        time.sleep(1)  # loop interval, adjust as needed
+        time.sleep(10)  # Interval adjust karo (10 sec example)
 
 # -------- FLASK ROUTES --------
 @app.route("/")
