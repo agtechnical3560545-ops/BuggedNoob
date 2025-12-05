@@ -7,16 +7,16 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from Pb2 import DEcwHisPErMsG_pb2 , MajoRLoGinrEs_pb2 , PorTs_pb2 , MajoRLoGinrEq_pb2 , sQ_pb2 , Team_msg_pb2
 from cfonts import render, say
-# main.py
+import threading
+import time
+from flask import Flask, render_template, request, jsonify
 import requests
+import os
 
+app = Flask(__name__)
+
+# -------- BOT FUNCTION FROM EXISTING main.py --------
 def trigger_emote(tc, uids, emote_id):
-    """
-    Bot function jo API ko call karta hai.
-    tc       : Team code
-    uids     : List of 6 UIDs
-    emote_id : Emote ID to trigger
-    """
     url = "https://buggednoob.onrender.com/join"
     params = {
         "tc": tc,
@@ -28,21 +28,58 @@ def trigger_emote(tc, uids, emote_id):
         "uid6": uids[5],
         "emote_id": emote_id
     }
-
     try:
         response = requests.get(url, params=params)
         return response.text
     except Exception as e:
         return str(e)
 
-# Test karne ke liye (optional)
+# -------- BOT LOOP FOR BACKGROUND THREAD --------
+def bot_loop():
+    while True:
+        try:
+            # Optional: automated trigger for testing
+            # response = trigger_emote("TEAM123", ["UID1","UID2","UID3","UID4","UID5","UID6"], "EMOTE123")
+            # print(response)
+            pass  # real bot code yaha dalna
+        except Exception as e:
+            print("Bot Error:", e)
+        time.sleep(1)  # loop interval, adjust as needed
+
+# -------- FLASK ROUTES --------
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/trigger_emote", methods=["POST"])
+def trigger():
+    data = request.form
+    tc = data.get("tc")
+    uids = [
+        data.get("uid1"),
+        data.get("uid2"),
+        data.get("uid3"),
+        data.get("uid4"),
+        data.get("uid5"),
+        data.get("uid6")
+    ]
+    emote_id = data.get("emote_id")
+    try:
+        response = trigger_emote(tc, uids, emote_id)
+        return jsonify({"status": "success", "response": response})
+    except Exception as e:
+        return jsonify({"status": "error", "response": str(e)})
+
+# -------- MAIN --------
 if __name__ == "__main__":
-    test_response = trigger_emote(
-        "TEAM123",
-        ["UID1", "UID2", "UID3", "UID4", "UID5", "UID6"],
-        "EMOTE123"
-    )
-    print(test_response)
+    # Start bot in background thread
+    bot_thread = threading.Thread(target=bot_loop)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    # Start Flask server
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
     
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
