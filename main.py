@@ -226,7 +226,7 @@ def send_likes(uid):
 
         if status == 1 and likes_added > 0:
             # Shortened response
-            return f"""[C][B][11EAFD]━━━━━
+            return "[C][B][11EAFD]━━━━━"
 [00FF00]✅ Likes Sent!
 [FFFFFF]Player: {player_name}
 [FFFFFF]Likes: {likes_added}
