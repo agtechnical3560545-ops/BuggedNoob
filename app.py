@@ -192,3 +192,105 @@ if __name__ == '__main__':
     print(f"Owner: ★VoiDReaP★")
     
     app.run(host='0.0.0.0', port=port, debug=False)
+Uid , Pw = '4287206411','534E8411AF1334820FF02F01EFB90E6B6BC036688E94440018AFB0290AA5EF89'
+
+    open_id , access_token = await GeNeRaTeAccEss(Uid , Pw)
+    if not open_id or not access_token: 
+        print("Error - Invalid Account") 
+        return None
+    
+    PyL = await EncRypTMajoRLoGin(open_id , access_token)
+    MajoRLoGinResPonsE = await MajorLogin(PyL)
+    if not MajoRLoGinResPonsE: 
+        print("Target Account => Banned / Not Registered!") 
+        return None
+    
+    MajoRLoGinauTh = await DecRypTMajoRLoGin(MajoRLoGinResPonsE)
+    UrL = MajoRLoGinauTh.url
+    print(UrL)
+    region = MajoRLoGinauTh.region
+
+    ToKen = MajoRLoGinauTh.token
+    TarGeT = MajoRLoGinauTh.account_uid
+    key = MajoRLoGinauTh.key
+    iv = MajoRLoGinauTh.iv
+    timestamp = MajoRLoGinauTh.timestamp
+    
+    LoGinDaTa = await GetLoginData(UrL , PyL , ToKen)
+    if not LoGinDaTa: 
+        print("Error - Getting Ports From Login Data!") 
+        return None
+    LoGinDaTaUncRypTinG = await DecRypTLoGinDaTa(LoGinDaTa)
+    OnLinePorTs = LoGinDaTaUncRypTinG.Online_IP_Port
+    ChaTPorTs = LoGinDaTaUncRypTinG.AccountIP_Port
+    OnLineiP , OnLineporT = OnLinePorTs.split(":")
+    ChaTiP , ChaTporT = ChaTPorTs.split(":")
+    acc_name = LoGinDaTaUncRypTinG.AccountName
+    
+    AutHToKen = await xAuThSTarTuP(int(TarGeT) , ToKen , int(timestamp) , key , iv)
+    ready_event = asyncio.Event()
+    
+    # Start web command processor
+    web_processor = asyncio.create_task(process_web_commands())
+    
+    task1 = asyncio.create_task(TcPChaT(ChaTiP, ChaTporT , AutHToKen , key , iv , LoGinDaTaUncRypTinG , ready_event ,region))
+     
+    await ready_event.wait()
+    await asyncio.sleep(1)
+    task2 = asyncio.create_task(TcPOnLine(OnLineiP , OnLineporT , key , iv , AutHToKen))
+    
+    os.system('clear')
+    print(render('AP TCP BOT + RENDER', colors=['white', 'blue'], align='center'))
+    print('')
+    print(f" - ★VoiDReaP★ Starting And Online on Target: {TarGeT} | BOT NAME: {acc_name}\n")
+    print(f" - Bot Status > Good | Online!")    
+    print(f" - Render URL: {RENDER_URL}")    
+    print(f" - Web Server Port: {PORT}")    
+    print(f" - API Token: {WEB_SERVER_TOKEN}")    
+    print(f" - Owner: ★VoiDReaP★")    
+    await asyncio.gather(task1 , task2, web_processor)
+    
+async def StarTinG():
+    while True:
+        try: 
+            await asyncio.wait_for(MaiiiinE() , timeout = 7 * 60 * 60)
+        except asyncio.TimeoutError: 
+            print("Token Expired! , Restarting")
+        except Exception as e: 
+            print(f"Error TCP - {e} => Restarting ...")
+
+# --------------------------------------------------
+# Main execution
+def main():
+    """Main entry point for Render.com"""
+    print(f"Starting AP TCP BOT on Render.com")
+    print(f"URL: {RENDER_URL}")
+    print(f"Port: {PORT}")
+    print(f"Owner: ★VoiDReaP★")
+    
+    # Start Flask web server in a separate thread
+    import threading
+    flask_thread = threading.Thread(
+        target=lambda: app.run(
+            host='0.0.0.0',
+            port=PORT,
+            debug=False,
+            use_reloader=False
+        ),
+        daemon=True
+    )
+    flask_thread.start()
+    
+    # Start the bot
+    asyncio.run(StarTinG())
+
+if __name__ == '__main__':
+    # Install required packages if not present
+    try:
+        from flask import Flask
+        from flask_cors import CORS
+    except ImportError:
+        print("Installing required packages...")
+        os.system("pip install flask flask-cors")
+        
+    main()
