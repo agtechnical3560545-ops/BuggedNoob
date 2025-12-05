@@ -12,9 +12,18 @@ import time
 from flask import Flask, render_template, request, jsonify
 import requests
 import os
+from flask import Flask
+import os
+
+app = Flask(__name__)   # <-- yeh define karta hai "app"
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port)  # <-- yaha app exist karta hai
     
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
