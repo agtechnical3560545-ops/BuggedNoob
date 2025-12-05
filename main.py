@@ -7,13 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from Pb2 import DEcwHisPErMsG_pb2 , MajoRLoGinrEs_pb2 , PorTs_pb2 , MajoRLoGinrEq_pb2 , sQ_pb2 , Team_msg_pb2
 from cfonts import render, say
-import threading
-import time
-from flask import Flask, render_template, request, jsonify
-import requests
-import os
-from flask import Flask
-import os
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
@@ -94,8 +87,8 @@ def Get_clan_info(clan_id):
 [00FF00]Name: {data['clan_name']}
 [00FF00]Lvl: {data['level']} | Rank: {data['rank']}
 [00FF00]Members: {data['guild_details']['total_members']}/{data['guild_details']['members_online']} online
-[11EAFD]°°°°EMOTE BOT°°°°
-[FFB300] OWNER: AMANUR KHAN""
+[11EAFD]°°°°AP TCP BOT°°°°
+[FFB300]DEV: APPLE GAMING FF"""
             command_cache[cache_key] = result
             cleanup_cache()
             return result
@@ -225,14 +218,14 @@ def send_likes(uid):
 
         if status == 1 and likes_added > 0:
             # Shortened response
-            return "[C][B][11EAFD]━━━━━"
+            return f"""[C][B][11EAFD]━━━━━
 [00FF00]✅ Likes Sent!
 [FFFFFF]Player: {player_name}
 [FFFFFF]Likes: {likes_added}
 [11EAFD]━━━━━
-[FFB300]EMOTE BOT""
+[FFB300]AP TCP BOT"""
         else:
-            return "[C][B][11EAFD]━━━━━"
+            return f"""[C][B][FF0000]━━━━━
 [FFFFFF]❌ No Likes Sent!
 [FF6347]Player may have already claimed
 [FF0000]━━━━━"""
@@ -565,7 +558,7 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
                         if is_bot_muted():
                             continue
 
-                       # ENHANCED COMMAND PROCESSING - WORKS EVERYWHERE
+                        # ENHANCED COMMAND PROCESSING - WORKS EVERYWHERE
                         # Priority 1: Fast response commands
                         
                         # DEBUG COMMAND - Always responds first
@@ -599,7 +592,7 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
 ━━━━━━━━━━━━━━━━━
 [DC143C]/stop,/mute,/unmute
 ━━━━━━━━━━━━━━━━━
-[00CED1] OWNER: AMANUR KHAN"""
+[00CED1]DEV: APPLE GAMING FF"""
                             else:
                                 message = f"""[C][B][2E8B57]AP TCP BOT
 ━━━━━━━━━━━━━━━━━
@@ -616,7 +609,7 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
 [F0E68C]/ai [Q] → AI chat
 [FFA500]/ee [TEAM] [UIDs] [E] → Join+Emote+Leave
 ━━━━━━━━━━━━━━━━━
-[00CED1]DEV: OWNER: AMANUR KHAN"""
+[00CED1]DEV: AP DEVELOPER"""
                             
                             try:
                                 P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
@@ -957,15 +950,15 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
                             except:
                                 pass
 
-                        # !e EMOTE COMMAND - Both Single and Multi-UID Support
-                        elif inPuTMsG.strip().startswith('!e '):
+                        # /e EMOTE COMMAND - Both Single and Multi-UID Support
+                        elif inPuTMsG.strip().startswith('/e '):
                             update_command_stats("emote")
                             try:
                                 parts = inPuTMsG.strip().split()
-                                if len(parts) >= 3:  # Minimum !e uid emote_id
+                                if len(parts) >= 3:  # Minimum /e uid emote_id
                                     try:
                                         # Check if it's single or multi-UID format
-                                        if len(parts) == 3:  # !e {uid} {emote_id}
+                                        if len(parts) == 3:  # /e {uid} {emote_id}
                                             target_uid = int(parts[1])
                                             emote_id = int(parts[2])
                                             
@@ -982,7 +975,7 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
                                             P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
                                             await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
                                             
-                                        elif len(parts) >= 4:  # Multi-UID: !e {uid1} {uid2} {...} {emote_id}
+                                        elif len(parts) >= 4:  # Multi-UID: /e {uid1} {uid2} {...} {emote_id}
                                             uids = []
                                             emote_id = None
                                             
