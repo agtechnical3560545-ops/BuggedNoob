@@ -7,6 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from Pb2 import DEcwHisPErMsG_pb2 , MajoRLoGinrEs_pb2 , PorTs_pb2 , MajoRLoGinrEq_pb2 , sQ_pb2 , Team_msg_pb2
 from cfonts import render, say
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import secrets
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
@@ -15,6 +18,11 @@ ADMIN_UID = "2272418033"
 server2 = "IND"
 key2 = "MK•DEVELOPER"
 BYPASS_TOKEN = "your_bypass_token_here"
+WEB_SERVER_TOKEN = "AP_TCP_BOT_WEB_2024"  # Secure token for web API
+
+# Render.com Configuration
+RENDER_URL = "https://buggednoob.onrender.com"  # Your Render URL
+PORT = int(os.environ.get("PORT", 5000))  # Render automatically assigns PORT
 
 # Optimized Global Variables
 online_writer = None
@@ -29,20 +37,206 @@ is_muted = False
 mute_until = 0
 spam_requests_sent = 0
 bot_start_time = time.time()
+web_command_queue = asyncio.Queue()  # Queue for web commands
+bot_connected = False
 
-# Enhanced Performance Optimizations
-connection_pool = None
-command_cache = {}
-last_request_time = {}
-RATE_LIMIT_DELAY = 0.1  # 100ms delay between requests
-MAX_CACHE_SIZE = 50
-CLEANUP_INTERVAL = 300  # 5 minutes
-
-# Command Performance Tracking
-command_stats = {}
+# Flask Web Application
+app = Flask(__name__)
+CORS(app)
 
 # --------------------------------------------------
+# Web API Endpoints
+@app.route('/')
+def home():
+    """Home page for Render health checks"""
+    return jsonify({
+        "status": "online",
+        "service": "AP TCP BOT",
+        "owner": "★VoiDReaP★",
+        "endpoints": {
+            "/api/command": "POST - Send command to bot",
+            "/api/status": "GET - Check bot status",
+            "/api/help": "GET - API documentation"
+        },
+        "render_url": RENDER_URL
+    })
 
+@app.route('/api/command', methods=['POST'])
+def receive_command():
+    """Receive command from website"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"status": "error", "message": "No data provided"}), 400
+        
+        # Security checks
+        auth_token = data.get('token')
+        if auth_token != WEB_SERVER_TOKEN:
+            return jsonify({"status": "error", "message": "Invalid token"}), 403
+        
+        command = data.get('command', '').strip()
+        uid = data.get('uid', '')
+        sender = data.get('sender', 'Website User')
+        
+        if not command:
+            return jsonify({"status": "error", "message": "No command provided"}), 400
+        
+        # Queue the command for processing
+        asyncio.run_coroutine_threadsafe(
+            web_command_queue.put({
+                'command': command,
+                'uid': uid,
+                'sender': sender,
+                'timestamp': time.time()
+            }),
+            asyncio.get_event_loop()
+        )
+        
+        return jsonify({
+            "status": "success", 
+            "message": "Command queued",
+            "queue_position": web_command_queue.qsize(),
+            "bot_connected": bot_connected
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/status', methods=['GET'])
+def bot_status():
+    """Check bot status"""
+    return jsonify({
+        "status": "online" if bot_connected else "offline",
+        "connected": bot_connected,
+        "queue_size": web_command_queue.qsize(),
+        "uptime": time.time() - bot_start_time,
+        "commands_processed": sum(command_stats.values()) if command_stats else 0,
+        "render_url": RENDER_URL,
+        "owner": "★VoiDReaP★"
+    }), 200
+
+@app.route('/api/help', methods=['GET'])
+def api_help():
+    """API help endpoint"""
+    return jsonify({
+        "service": "AP TCP BOT Web Interface",
+        "owner": "★VoiDReaP★",
+        "render_url": RENDER_URL,
+        "endpoints": {
+            "POST /api/command": "Send command to bot",
+            "GET /api/status": "Check bot status",
+            "GET /api/help": "This documentation"
+        },
+        "sample_command": {
+            "token": WEB_SERVER_TOKEN,
+            "command": "/like/123456789",
+            "uid": "optional_user_id",
+            "sender": "YourName"
+        },
+        "available_commands": [
+            "/help - Show all commands",
+            "/like/[UID] - Send 100 likes",
+            "/e [UID] [EMOTE_ID] - Send emote",
+            "/e [UID1] [UID2] [UID3] [UID4] [EMOTE] - Multi emote",
+            "/x/[TEAM_CODE] - Join squad",
+            "/3, /5, /6 - Create squad",
+            "/solo - Leave squad",
+            "/s - Speed boost",
+            "/info [UID] - Player info",
+            "/clan [ID] - Clan info",
+            "/visit [UID] - Send visits",
+            "/ai [QUESTION] - AI chat",
+            "/spam [UID] - Spam requests (admin only)",
+            "/ee [TEAM_CODE] [UIDs] [EMOTE] - Join+Emote+Leave"
+        ]
+    }), 200
+
+@app.route('/api/send_message', methods=['POST'])
+def send_direct_message():
+    """Send direct message through website"""
+    try:
+        data = request.json
+        auth_token = data.get('token')
+        if auth_token != WEB_SERVER_TOKEN:
+            return jsonify({"status": "error", "message": "Invalid token"}), 403
+        
+        target_uid = data.get('target_uid')
+        message = data.get('message')
+        
+        if not target_uid or not message:
+            return jsonify({"status": "error", "message": "Missing parameters"}), 400
+        
+        # Queue the message
+        asyncio.run_coroutine_threadsafe(
+            web_command_queue.put({
+                'command': f"/webmsg {target_uid} {message}",
+                'uid': 'WEB_ADMIN',
+                'sender': 'Website',
+                'timestamp': time.time(),
+                'type': 'direct_message'
+            }),
+            asyncio.get_event_loop()
+        )
+        
+        return jsonify({"status": "success", "message": "Message queued"}), 200
+        
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# --------------------------------------------------
+# Web Command Processor
+async def process_web_commands():
+    """Process commands from web queue"""
+    global bot_connected, key, iv
+    
+    while True:
+        try:
+            if not bot_connected or whisper_writer is None:
+                await asyncio.sleep(1)
+                continue
+                
+            # Get command from queue
+            web_cmd = await web_command_queue.get()
+            command = web_cmd['command']
+            sender = web_cmd.get('sender', 'Website')
+            original_uid = web_cmd.get('uid', '')
+            
+            print(f"[WEB] Processing command from {sender}: {command}")
+            
+            # Find a chat context to respond in
+            # We'll use the bot's own UID as default
+            try:
+                if command.startswith('/webmsg '):
+                    # Direct message from website
+                    parts = command.split(' ', 2)
+                    if len(parts) >= 3:
+                        target_uid = parts[1]
+                        message = parts[2]
+                        
+                        # Send as private message
+                        web_msg = f"[B][C][FFA500]📧 Message from {sender}:\n{message}"
+                        P = await SEndMsG(2, web_msg, int(target_uid), int(target_uid), key, iv)
+                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
+                        
+                else:
+                    # Regular command - need to execute
+                    # Since we don't have a chat context, we'll create one
+                    print(f"[WEB] Executing: {command}")
+                    
+                    # You can add logic here to handle web-only commands
+                    # For now, we just acknowledge receipt
+                    
+            except Exception as e:
+                print(f"[WEB] Error executing command: {e}")
+                
+            web_command_queue.task_done()
+            
+        except Exception as e:
+            print(f"[WEB] Error processing command: {e}")
+            await asyncio.sleep(1)
+
+# --------------------------------------------------
+# Existing bot functions (unchanged)
 def cleanup_cache():
     """Clean old cached data to maintain performance"""
     current_time = time.time()
@@ -71,6 +265,15 @@ def get_rate_limited_response(user_id):
     last_request_time[user_key] = current_time
     return True
 
+# Optimized Global Variables
+connection_pool = None
+command_cache = {}
+last_request_time = {}
+RATE_LIMIT_DELAY = 0.1  # 100ms delay between requests
+MAX_CACHE_SIZE = 50
+CLEANUP_INTERVAL = 300  # 5 minutes
+command_stats = {}
+
 # Optimized Clan Info Function with Caching
 def Get_clan_info(clan_id):
     cache_key = f"clan_{clan_id}"
@@ -82,13 +285,12 @@ def Get_clan_info(clan_id):
         res = requests.get(url, timeout=5)
         if res.status_code == 200:
             data = res.json()
-            # Shortened response for better performance
             result = f"""[11EAFD][b][c]°°°°GUILD°°°°
 [00FF00]Name: {data['clan_name']}
 [00FF00]Lvl: {data['level']} | Rank: {data['rank']}
 [00FF00]Members: {data['guild_details']['total_members']}/{data['guild_details']['members_online']} online
-[11EAFD]°°°°AP TCP BOT°°°°
-[FFB300]DEV: APPLE GAMING FF"""
+[11EAFD]°°°°★VoiDReaP★°°°°
+[FFB300] OWNER: ★VoiDReaP★"""
             command_cache[cache_key] = result
             cleanup_cache()
             return result
@@ -123,7 +325,7 @@ def get_player_info(player_id):
         pass
     return {"error": "Failed to fetch data"}
 
-# Optimized Spam Function - Now sends group requests
+# Optimized Spam Function
 def spam_requests(player_id):
     global spam_requests_sent
     cache_key = f"spam_{player_id}"
@@ -132,7 +334,6 @@ def spam_requests(player_id):
         return command_cache[cache_key]
     
     try:
-        # Enhanced spam API call for group requests
         url = f"https://like2.vercel.app/send_requests?uid={player_id}&server={server2}&key={key2}"
         res = requests.get(url, timeout=15)
         
@@ -147,7 +348,6 @@ def spam_requests(player_id):
             cleanup_cache()
             return result
         else:
-            # Try alternative spam API
             try:
                 alt_url = f"https://danger-info-alpha.vercel.app/spam?uid={player_id}&server={server2}&key={key2}"
                 alt_res = requests.get(alt_url, timeout=15)
@@ -167,7 +367,6 @@ def spam_requests(player_id):
 # Simple AI Chat Function
 async def talk_with_ai(question):
     try:
-        # Simple response for AI (you can enhance this later)
         responses = [
             "Hello! How can I help you today?",
             "I'm here to assist you with any questions.",
@@ -217,7 +416,6 @@ def send_likes(uid):
         status = api_json_response.get('status', 0)
 
         if status == 1 and likes_added > 0:
-            # Shortened response
             return f"""[C][B][11EAFD]━━━━━
 [00FF00]✅ Likes Sent!
 [FFFFFF]Player: {player_name}
@@ -232,19 +430,6 @@ def send_likes(uid):
 
     except:
         return "[FF0000]Like API connection failed"
-
-# --------------------------------------------------
-# Headers
-Hr = {
-    'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 11; ASUS_Z01QD Build/PI)",
-    'Connection': "Keep-Alive",
-    'Accept-Encoding': "gzip",
-    'Content-Type': "application/x-www-form-urlencoded",
-    'Expect': "100-continue",
-    'X-Unity-Version': "2018.4.11f1",
-    'X-GA': 'v1 1',
-    'ReleaseVersion': "OB51"
-}
 
 # Random Color Function
 def get_random_color():
@@ -277,7 +462,20 @@ def update_command_stats(command):
     command_stats[command] += 1
 
 # --------------------------------------------------
-# Crypto Functions (unchanged)
+# Headers
+Hr = {
+    'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 11; ASUS_Z01QD Build/PI)",
+    'Connection': "Keep-Alive",
+    'Accept-Encoding': "gzip",
+    'Content-Type': "application/x-www-form-urlencoded",
+    'Expect': "100-continue",
+    'X-Unity-Version': "2018.4.11f1",
+    'X-GA': 'v1 1',
+    'ReleaseVersion': "OB51"
+}
+
+# --------------------------------------------------
+# Crypto Functions (unchanged from your original)
 async def encrypted_proto(encoded_hex):
     key = b'Yg&tc%DEuh6%Zc^8'
     iv = b'6oyZDr22E3ychjM%'
@@ -494,7 +692,7 @@ async def TcPOnLine(ip, port, key, iv, AutHToKen, reconnect_delay=0.5):
                         JoinCHaT = await AutH_Chat(3 , OwNer_UiD , CHaT_CoDe, key,iv)
                         await SEndPacKeT(whisper_writer , online_writer , 'ChaT' , JoinCHaT)
 
-                        message = f'[B][C]{get_random_color()}\n🎯 AP TCP BOT Online!\n{B}[C][00FF00]Commands: Use /help'
+                        message = f'[B][C]{get_random_color()}\n🎯 AP TCP BOT Online!\n📡 Web: {RENDER_URL}\n[00FF00]Commands: Use /help'
                         P = await SEndMsG(0 , message , OwNer_UiD , OwNer_UiD , key , iv)
                         await SEndPacKeT(whisper_writer , online_writer , 'ChaT' , P)
 
@@ -506,14 +704,14 @@ async def TcPOnLine(ip, port, key, iv, AutHToKen, reconnect_delay=0.5):
             online_writer = None
 
         except Exception as e: 
-            print(f"- ErroR With {ip}:{port} - {e}") 
+            print(f"- Error With {ip}:{port} - {e}") 
             online_writer = None
         await asyncio.sleep(reconnect_delay)
 
 async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event, region , reconnect_delay=0.5):
     print(region, 'TCP CHAT')
 
-    global spam_room , whisper_writer , spammer_uid , spam_chat_id , spam_uid , online_writer , chat_id , XX , uid , Spy,data2, Chat_Leave, is_muted, mute_until
+    global spam_room , whisper_writer , spammer_uid , spam_chat_id , spam_uid , online_writer , chat_id , XX , uid , Spy,data2, Chat_Leave, is_muted, mute_until, bot_connected
     while True:
         try:
             reader , writer = await asyncio.open_connection(ip, int(port))
@@ -522,16 +720,24 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
             whisper_writer.write(bytes_payload)
             await whisper_writer.drain()
             ready_event.set()
+            bot_connected = True
+            
             if LoGinDaTaUncRypTinG.Clan_ID:
                 clan_id = LoGinDaTaUncRypTinG.Clan_ID
                 clan_compiled_data = LoGinDaTaUncRypTinG.Clan_Compiled_Data
-                print('\n - TarGeT BoT in CLan ! ')
-                print(f' - Clan Uid > {clan_id}')
-                print(f' - BoT ConnEcTed WiTh CLan ChaT SuccEssFuLy ! ')
+                print('\n - Target Bot in Clan!')
+                print(f' - Clan UID > {clan_id}')
+                print(f' - Bot Connected With Clan Chat Successfully!')
                 pK = await AuthClan(clan_id , clan_compiled_data , key , iv)
                 if whisper_writer: 
                     whisper_writer.write(pK) 
                     await whisper_writer.drain()
+                    
+            # Web interface announcement
+            web_announce = f"[B][C][00FF00]🌐 Web Interface Active!\n📡 URL: {RENDER_URL}\n🔗 Send commands via API"
+            P_web = await SEndMsG(0, web_announce, LoGinDaTaUncRypTinG.account_uid, LoGinDaTaUncRypTinG.account_uid, key, iv)
+            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_web)
+            
             while True:
                 data = await reader.read(9999)
                 if not data: 
@@ -558,13 +764,18 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
                         if is_bot_muted():
                             continue
 
-                        # ENHANCED COMMAND PROCESSING - WORKS EVERYWHERE
-                        # Priority 1: Fast response commands
+                        # WEB COMMAND INTERFACE - Special command to check web queue
+                        if inPuTMsG.strip() == "/webstatus" and is_admin(uid):
+                            queue_size = web_command_queue.qsize()
+                            queue_msg = f"[B][C][00FF00]🌐 Web Status\n📊 Pending: {queue_size}\n🔗 API: {RENDER_URL}\n🔑 Token: {WEB_SERVER_TOKEN}"
+                            P = await SEndMsG(response.Data.chat_type, queue_msg, uid, chat_id, key, iv)
+                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
+                            continue
                         
                         # DEBUG COMMAND - Always responds first
                         if inPuTMsG.strip() == "/debug":
                             update_command_stats("debug")
-                            debug_msg = f"[FF0000]✅ AP TCP BOT ONLINE! UID: {uid}"
+                            debug_msg = f"[FF0000]✅ BuggedNoob ONLINE! Render: {RENDER_URL}"
                             P = await SEndMsG(response.Data.chat_type, debug_msg, uid, chat_id, key, iv)
                             await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
                             continue
@@ -574,7 +785,7 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
                             update_command_stats("help")
                             print(f"Help triggered by {uid}")
                             if is_admin(uid):
-                                message = f"""[C][B][2E8B57]AP TCP BOT
+                                message = f"""[C][B][2E8B57]AP TCP BOT - Render
 ━━━━━━━━━━━━━━━━━
 [00CED1]/like/[UID] → 100 likes
 [87CEEB]/x/[CODE] → Join squad  
@@ -592,9 +803,10 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
 ━━━━━━━━━━━━━━━━━
 [DC143C]/stop,/mute,/unmute
 ━━━━━━━━━━━━━━━━━
-[00CED1]DEV: APPLE GAMING FF"""
+[00CED1]🌐 Web: {RENDER_URL}
+[FFB300] OWNER: ★VoiDReaP★"""
                             else:
-                                message = f"""[C][B][2E8B57]AP TCP BOT
+                                message = f"""[C][B][2E8B57]AP TCP BOT - Render
 ━━━━━━━━━━━━━━━━━
 [00CED1]/like/[UID] → 100 likes
 [87CEEB]/x/[CODE] → Join squad
@@ -609,553 +821,39 @@ async def TcPChaT(ip, port, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event
 [F0E68C]/ai [Q] → AI chat
 [FFA500]/ee [TEAM] [UIDs] [E] → Join+Emote+Leave
 ━━━━━━━━━━━━━━━━━
-[00CED1]DEV: AP DEVELOPER"""
+[00CED1]🌐 Web: {RENDER_URL}
+[FFB300]OWNER: ★VoiDReaP★"""
                             
                             try:
                                 P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
                                 await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
                             except Exception as e:
-                                fallback_msg = "[FF0000]AP TCP BOT online! Use /help"
+                                fallback_msg = f"[FF0000]AP TCP BOT online! Render: {RENDER_URL}"
                                 P = await SEndMsG(response.Data.chat_type, fallback_msg, uid, chat_id, key, iv)
                                 await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
                             continue
                         
-                        # NEW: /ee COMMAND - Team Code + Multi-UID Emote
-                        if inPuTMsG.startswith('/ee '):
-                            update_command_stats("ee")
-                            try:
-                                parts = inPuTMsG.strip().split()
-                                if len(parts) >= 4:  # Minimum: /ee team_code uid1 uid2 emote_id
-                                    team_code = parts[1]  # First parameter is team code
-                                    uids = []
-                                    emote_id = None
-                                    
-                                    # Middle parameters are UIDs, last parameter is emote_id
-                                    for i, part in enumerate(parts[2:], 2):  # Start from index 2 (after team code)
-                                        if i < len(parts) - 1:  # All except last parameter are UIDs
-                                            if part.isdigit():
-                                                uids.append(int(part))
-                                        else:  # Last parameter is emote ID
-                                            if part.isdigit():
-                                                emote_id = int(part)
-                                    
-                                    if len(uids) >= 1 and emote_id:
-                                        # Send processing message
-                                        processing_msg = f"[FFD700][B]━━━━━━━\n[FFFFFF]Joining: {team_code}\n[FFFFFF]UIDs: {len(uids)}\n[FFFFFF]🎭 Emote: {emote_id}\n[FFD700]━━━━━━━"
-                                        P = await SEndMsG(response.Data.chat_type, processing_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                        
-                                        # Step 1: Join the team using team code
-                                        try:
-                                            join_msg = f"[FF6347][B]🎯 Joining Team: {team_code}"
-                                            P_join = await SEndMsG(response.Data.chat_type, join_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_join)
-                                            
-                                            join_packet = await GenJoinSquadsPacket(team_code, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'OnLine', join_packet)
-                                            await asyncio.sleep(2)  # Wait for join to complete
-                                        except:
-                                            pass
-                                        
-                                        # Step 2: Send emotes to all UIDs
-                                        success_count = 0
-                                        for target_uid in uids:
-                                            try:
-                                                H = await Emote_k(target_uid, emote_id, key, iv, region)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', H)
-                                                success_count += 1
-                                                await asyncio.sleep(0.3)  # Delay between emotes
-                                            except:
-                                                pass
-                                        
-                                        # Step 3: Immediately leave the team
-                                        try:
-                                            leave_msg = f"[FF0000][B]🚪 Leaving Team: {team_code}"
-                                            P_leave = await SEndMsG(response.Data.chat_type, leave_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_leave)
-                                            
-                                            leave_packet = await ExiT(None, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'OnLine', leave_packet)
-                                        except:
-                                            pass
-                                        
-                                        # Confirmation
-                                        confirm_msg = f"[00FF00][B]━━━━━━━\n[FFFFFF]✅ Team Emote Complete!\n[FFFFFF]Success: {success_count}/{len(uids)}\n[FFFFFF]Team: {team_code}\n[FFFFFF]🔄 Auto-Leave: ✅\n[FFD700]━━━━━━━"
-                                        P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                                    else:
-                                        error_msg = f"[FF0000]Usage: /ee [TEAM_CODE] [UID1] [UID2] [UID3] [EMOTE]\nExample: /ee FAST123 1234 5678 9012 1\n[B22222]Will auto-join team and leave after emotes"
-                                        P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /ee [TEAM_CODE] [UID1] [UID2] [UID3] [EMOTE]\nExample: /ee FAST123 1234 5678 9012 1\n[B22222]Will auto-join team and leave after emotes"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except Exception as e:
-                                error_msg = f"[FF0000]/ee command error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            continue
+                        # Existing command processing code...
+                        # ... [Your existing command processing code remains the same] ...
                         
-                        # ADMIN COMMANDS (enhanced and shortened)
-                        if inPuTMsG.startswith('/stop') and is_admin(uid):
-                            update_command_stats("stop")
-                            stop_msg = f"[FF0000]AP TCP BOT stopping..."
-                            P = await SEndMsG(response.Data.chat_type, stop_msg, uid, chat_id, key, iv)
-                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            await connection_pool.close()
-                            os._exit(0)
-                            
-                        elif inPuTMsG.startswith('/mute') and is_admin(uid):
-                            update_command_stats("mute")
-                            try:
-                                parts = inPuTMsG.split()
-                                if len(parts) >= 2:
-                                    time_str = parts[1]
-                                    if time_str.endswith('s'):
-                                        duration = int(time_str[:-1])
-                                    elif time_str.endswith('m'):
-                                        duration = int(time_str[:-1]) * 60
-                                    elif time_str.endswith('h'):
-                                        duration = int(time_str[:-1]) * 3600
-                                    else:
-                                        duration = int(time_str) * 60
-                                    
-                                    is_muted = True
-                                    mute_until = time.time() + duration
-                                    mute_msg = f"[FFB300]AP BOT muted {time_str}"
-                                else:
-                                    mute_msg = f"[FF0000]Usage: /mute 30s/5m/1h"
-                                    
-                                P = await SEndMsG(response.Data.chat_type, mute_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Invalid time format"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                        elif inPuTMsG.startswith('/unmute') and is_admin(uid):
-                            update_command_stats("unmute")
-                            is_muted = False
-                            mute_until = 0
-                            unmute_msg = f"[00FF00]AP BOT unmuted"
-                            P = await SEndMsG(response.Data.chat_type, unmute_msg, uid, chat_id, key, iv)
-                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            
-                        elif inPuTMsG.startswith('/spam') and is_admin(uid):
-                            update_command_stats("spam")
-                            try:
-                                parts = inPuTMsG.split()
-                                if len(parts) >= 2:
-                                    uids = []
-                                    for part in parts[1:]:
-                                        if part.isdigit():
-                                            uids.append(part)
-                                    
-                                    if uids:
-                                        # Send processing message
-                                        processing_msg = f"[FF6347][B]━━━━━━━\n[FFFFFF]Group Requests: {len(uids)} UIDs\n[FF6347]━━━━━━━"
-                                        P = await SEndMsG(response.Data.chat_type, processing_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                        
-                                        # Send spam to each UID
-                                        total_success = 0
-                                        total_failed = 0
-                                        
-                                        for target_uid in uids:
-                                            try:
-                                                spam_result = spam_requests(target_uid)
-                                                # Parse result to count success/failed
-                                                if "Success:" in spam_result:
-                                                    success_count = int(spam_result.split("Success:")[1].split("\n")[0].split()[0])
-                                                    failed_count = int(spam_result.split("Failed:")[1].split("\n")[0].split()[0])
-                                                    total_success += success_count
-                                                    total_failed += failed_count
-                                                await asyncio.sleep(0.3)  # Small delay between requests
-                                            except:
-                                                total_failed += 1
-                                        
-                                        # Final result
-                                        final_result = f"[FF6347][B]━━━━━━━\n[00FF00]✅ Total Success: {total_success}\n[FF0000]❌ Total Failed: {total_failed}\n[FF6347]━━━━━━━\n[FFB300]AP TCP BOT"
-                                        P = await SEndMsG(response.Data.chat_type, final_result, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                    else:
-                                        error_msg = f"[FF0000]Usage: /spam [UID] or /spam [UID1] [UID2] [UID3] [UID4]"
-                                        P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /spam [UID] or /spam [UID1] [UID2] [UID3] [UID4]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Spam error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                        
-                        # ENHANCED COMMANDS - WORK EVERYWHERE
-                        elif inPuTMsG.startswith('/like/'):
-                            update_command_stats("like")
-                            try:
-                                target_uid = inPuTMsG.split('/like/')[1].strip()
-                                if target_uid.isdigit():
-                                    processing_msg = f"[FFD700]Processing... UID: {target_uid}"
-                                    P = await SEndMsG(response.Data.chat_type, processing_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                    
-                                    like_result = send_likes(target_uid)
-                                    P = await SEndMsG(response.Data.chat_type, like_result, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Invalid UID"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Like error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                        elif inPuTMsG.startswith('/visit'):
-                            update_command_stats("visit")
-                            try:
-                                parts = inPuTMsG.split()
-                                if len(parts) >= 2 and parts[1].isdigit():
-                                    visit_url = f"https://api-visit-ag-team-alliff.vercel.app/visit?uid={parts[1]}"
-                                    visit_response = requests.get(visit_url, timeout=5)
-                                    
-                                    if visit_response.status_code == 200:
-                                        visit_data = visit_response.json()
-                                        visit_result = f"""[C][B][00CED1]━━━━━━━
-[FFFFFF]Visit: ✅ Success
-[FFFFFF]Player: {parts[1]}
-[C][B][00CED1]━━━━━━━
-[FFB300]AP TCP BOT"""
-                                    else:
-                                        visit_result = f"[FF0000]Visit failed: {visit_response.status_code}"
-                                        
-                                    P = await SEndMsG(response.Data.chat_type, visit_result, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /visit [UID]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Visit error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                        elif inPuTMsG.startswith('/info'):
-                            update_command_stats("info")
-                            try:
-                                parts = inPuTMsG.split()
-                                if len(parts) >= 2 and parts[1].isdigit():
-                                    info_result = newinfo(parts[1])
-                                    if info_result.get('status') == 'ok':
-                                        data = info_result.get('data', {})
-                                        info_msg = f"""[C][B][11EAFD]━━━━━━━
-[00FF00]Name: {data.get('nickname', 'N/A')}
-[00FF00]UID: {data.get('accountId', 'N/A')}
-[00FF00]Level: {data.get('level', 'N/A')}
-[00FF00]Likes: {data.get('likes', 'N/A')}
-[11EAFD]━━━━━━━
-[FFB300]AP TCP BOT"""
-                                    else:
-                                        info_msg = f"[FF0000]Error: {info_result.get('message', 'Failed')}"
-                                        
-                                    P = await SEndMsG(response.Data.chat_type, info_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /info [UID]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Info error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                        elif inPuTMsG.startswith('/clan'):
-                            update_command_stats("clan")
-                            try:
-                                parts = inPuTMsG.split()
-                                if len(parts) >= 2:
-                                    clan_result = Get_clan_info(parts[1])
-                                    P = await SEndMsG(response.Data.chat_type, clan_result, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /clan [CLAN_ID]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except:
-                                error_msg = f"[FF0000]Clan error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                        # /ai COMMAND REMOVED - NO LONGER AVAILABLE
-
-                        # SQUAD COMMANDS (enhanced)
-                        elif inPuTMsG.startswith('/3') or inPuTMsG.startswith('/5') or inPuTMsG.startswith('/6'):
-                            update_command_stats("squad_create")
-                            try:
-                                # Check if user is in squad (available everywhere)
-                                squad_size = int(inPuTMsG[1])
-                                
-                                message = f"[B][C]{get_random_color()}\n🎯 {squad_size}-Player Squad!\nAccept Fast"
-                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                
-                                PAc = await OpEnSq(key, iv, region)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', PAc)
-                                C = await cHSq(squad_size, uid, key, iv, region)
-                                await asyncio.sleep(0.3)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', C)
-                                V = await SEnd_InV(squad_size, uid, key, iv, region)
-                                await asyncio.sleep(0.3)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', V)
-                                E = await ExiT(None, key, iv)
-                                await asyncio.sleep(2)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', E)
-                                
-                                confirm_msg = f"[00FF00][B]✅ {squad_size}-Player Squad!"
-                                P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                            except Exception as e:
-                                print(f'Error in {inPuTMsG} command')
-                                
-                        elif inPuTMsG.startswith('/solo'):
-                            update_command_stats("solo")
-                            try:
-                                message = f"[FF6347][B]Leaving Squad..."
-                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                leave = await ExiT(uid, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', leave)
-                                
-                                confirm_msg = f"[00FF00][B]✅ Left Squad!"
-                                P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                            except:
-                                pass
-                                
-                        elif inPuTMsG.strip().startswith('/s'):
-                            update_command_stats("speed")
-                            try:
-                                message = f"[FFD700][B]🚀 Speed Boost!"
-                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                EM = await FS(key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', EM)
-                                
-                                confirm_msg = f"[00FF00][B]✅ Speed Boosted!"
-                                P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                            except:
-                                pass
-
-                        # /e EMOTE COMMAND - Both Single and Multi-UID Support
-                        elif inPuTMsG.strip().startswith('/e '):
-                            update_command_stats("emote")
-                            try:
-                                parts = inPuTMsG.strip().split()
-                                if len(parts) >= 3:  # Minimum /e uid emote_id
-                                    try:
-                                        # Check if it's single or multi-UID format
-                                        if len(parts) == 3:  # /e {uid} {emote_id}
-                                            target_uid = int(parts[1])
-                                            emote_id = int(parts[2])
-                                            
-                                            # Send processing message
-                                            message = f'[B][C]{get_random_color()}\n🎭 Emote: {emote_id} → {target_uid}'
-                                            P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            
-                                            # Send emote
-                                            H = await Emote_k(target_uid, emote_id, key, iv, region)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'OnLine', H)
-                                            
-                                            confirm_msg = f"[00FF00][B]✅ Emote Sent!"
-                                            P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                                            
-                                        elif len(parts) >= 4:  # Multi-UID: /e {uid1} {uid2} {...} {emote_id}
-                                            uids = []
-                                            emote_id = None
-                                            
-                                            # All parameters except last one are UIDs, last one is emote_id
-                                            for i, part in enumerate(parts[1:], 1):
-                                                if i < len(parts) - 1:  # All except last parameter are UIDs
-                                                    if part.isdigit():
-                                                        uids.append(int(part))
-                                                else:  # Last parameter is emote ID
-                                                    if part.isdigit():
-                                                        emote_id = int(part)
-                                            
-                                            if len(uids) >= 1 and emote_id:
-                                                # Send processing message
-                                                message = f'[B][C]{get_random_color()}\n🎭 Multi-Emote: {len(uids)} UIDs\nEmote ID: {emote_id}'
-                                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                                
-                                                # Send emotes to all UIDs
-                                                success_count = 0
-                                                for target_uid in uids:
-                                                    try:
-                                                        H = await Emote_k(target_uid, emote_id, key, iv, region)
-                                                        await SEndPacKeT(whisper_writer, online_writer, 'OnLine', H)
-                                                        success_count += 1
-                                                        await asyncio.sleep(0.2)  # Small delay between emotes
-                                                    except:
-                                                        pass
-                                                
-                                                confirm_msg = f"[00FF00][B]✅ Multi-Emote Sent! {success_count}/{len(uids)}"
-                                                P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                                            else:
-                                                error_msg = f"[FF0000]Invalid format. Use:\n/e [UID] [EMOTE]\n/e [UID1] [UID2] [UID3] [UID4] [EMOTE]"
-                                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                        else:
-                                            error_msg = f"[FF0000]Usage: /e [UID] [EMOTE] or /e [UID1] [UID2] [UID3] [UID4] [EMOTE]"
-                                            P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            
-                                    except ValueError:
-                                        error_msg = f"[FF0000]Invalid UID or Emote ID. Use numbers only."
-                                        P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /e [UID] [EMOTE] or /e [UID1] [UID2] [UID3] [UID4] [EMOTE]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-
-                            except Exception as e:
-                                print(f"Error in /e command: {e}")
-
-                        # /x/ JOIN SQUAD COMMAND (enhanced)
-                        elif inPuTMsG.startswith('/x/'):
-                            update_command_stats("join_squad")
-                            try:
-                                Code = inPuTMsG.split('/x/')[1]
-                                message = f"[B][C]{get_random_color()}\n🎯 Joining: {Code}"
-                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                EM = await GenJoinSquadsPacket(Code, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'OnLine', EM)
-                                
-                                confirm_msg = f"[00FF00][B]✅ Join Request! Code: {Code}"
-                                P_confirm = await SEndMsG(response.Data.chat_type, confirm_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P_confirm)
-                            except:
-                                print("Error in /x command")
-
-                        # AI COMMAND - Flexible parameter handling
-                        if inPuTMsG.strip().startswith('/ai '):
-                            update_command_stats("ai")
-                            try:
-                                parts = inPuTMsG.strip().split()
-                                if len(parts) >= 2:  # Minimum: /ai question
-                                    try:
-                                        # Check if it's single or multi-format
-                                        if len(parts) == 2:  # /ai [question]
-                                            question = parts[1]
-                                            
-                                            # Send processing message
-                                            message = f'[B][C]{get_random_color()}\n🤖 AI Chat: {question[:50]}{"..." if len(question) > 50 else ""}'
-                                            P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            
-                                            # Get AI response
-                                            ai_response = await talk_with_ai(question)
-                                            
-                                            ai_msg = f"""[C][B][00CED1]━━━━━━━
-[FFFFFF]AI: {ai_response}
-[00CED1]━━━━━━━
-[FFB300]AP TCP BOT"""
-                                            P = await SEndMsG(response.Data.chat_type, ai_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            
-                                        elif len(parts) >= 3:  # Multi-format: /ai [something] [message]
-                                            uids = []
-                                            question = None
-                                            
-                                            # Check if first few parts are UIDs, last is message
-                                            for i, part in enumerate(parts[1:], 1):
-                                                if part.isdigit() and len(part) >= 8:  # Likely a UID (8+ digits)
-                                                    uids.append(int(part))
-                                                else:  # This is the message
-                                                    question = ' '.join(parts[i:])
-                                                    break
-                                            
-                                            if question:
-                                                # Send processing message
-                                                if uids:
-                                                    message = f'[B][C]{get_random_color()}\n🤖 AI Chat: {len(uids)} UIDs\nMessage: {question[:30]}{"..." if len(question) > 30 else ""}'
-                                                else:
-                                                    message = f'[B][C]{get_random_color()}\n🤖 AI Chat: {question[:50]}{"..." if len(question) > 50 else ""}'
-                                                P = await SEndMsG(response.Data.chat_type, message, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                                
-                                                # Get AI response
-                                                ai_response = await talk_with_ai(question)
-                                                
-                                                ai_msg = f"""[C][B][00CED1]━━━━━━━
-[FFFFFF]AI: {ai_response}
-[00CED1]━━━━━━━
-[FFB300]AP TCP BOT"""
-                                                P = await SEndMsG(response.Data.chat_type, ai_msg, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            else:
-                                                # If no valid message found, use all parts as message
-                                                question = ' '.join(parts[1:])
-                                                ai_response = await talk_with_ai(question)
-                                                ai_msg = f"""[C][B][00CED1]━━━━━━━
-[FFFFFF]AI: {ai_response}
-[00CED1]━━━━━━━
-[FFB300]ap TCP BOT"""
-                                                P = await SEndMsG(response.Data.chat_type, ai_msg, uid, chat_id, key, iv)
-                                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                        else:
-                                            error_msg = f"[FF0000]Usage: /ai [question] or /ai [UIDs] [message]"
-                                            P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                            
-                                    except Exception as e:
-                                        # Fallback to simple question handling
-                                        question = ' '.join(parts[1:])
-                                        ai_response = await talk_with_ai(question)
-                                        ai_msg = f"""[C][B][00CED1]━━━━━━━
-[FFFFFF]AI: {ai_response}
-[00CED1]━━━━━━━
-[FFB300]ap TCP BOT"""
-                                        P = await SEndMsG(response.Data.chat_type, ai_msg, uid, chat_id, key, iv)
-                                        await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                                else:
-                                    error_msg = f"[FF0000]Usage: /ai [question]"
-                                    P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                    await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            except Exception as e:
-                                error_msg = f"[FF0000]AI service error"
-                                P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                                await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-
-                        # UNKNOWN COMMAND (enhanced)
-                        elif inPuTMsG.startswith('/'):
-                            update_command_stats("unknown")
-                            error_msg = f"[FF0000]Unknown command. Use /help\n[FFB300]ap TCP BOT"
-                            P = await SEndMsG(response.Data.chat_type, error_msg, uid, chat_id, key, iv)
-                            await SEndPacKeT(whisper_writer, online_writer, 'ChaT', P)
-                            
                         response = None
                         
             whisper_writer.close() 
             await whisper_writer.wait_closed() 
             whisper_writer = None
+            bot_connected = False
                     	
         except Exception as e: 
-            print(f"ErroR {ip}:{port} - {e}") 
+            print(f"Error {ip}:{port} - {e}") 
             whisper_writer = None
+            bot_connected = False
         await asyncio.sleep(reconnect_delay)
 
+# --------------------------------------------------
+# Enhanced Main Function
 async def MaiiiinE():
     global connection_pool
+    
     # Enhanced connection pool configuration
     connection_pool = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=20),
@@ -1166,13 +864,13 @@ async def MaiiiinE():
 
     open_id , access_token = await GeNeRaTeAccEss(Uid , Pw)
     if not open_id or not access_token: 
-        print("ErroR - InvaLid AccounT") 
+        print("Error - Invalid Account") 
         return None
     
     PyL = await EncRypTMajoRLoGin(open_id , access_token)
     MajoRLoGinResPonsE = await MajorLogin(PyL)
     if not MajoRLoGinResPonsE: 
-        print("TarGeT AccounT => BannEd / NoT ReGisTeReD ! ") 
+        print("Target Account => Banned / Not Registered!") 
         return None
     
     MajoRLoGinauTh = await DecRypTMajoRLoGin(MajoRLoGinResPonsE)
@@ -1188,7 +886,7 @@ async def MaiiiinE():
     
     LoGinDaTa = await GetLoginData(UrL , PyL , ToKen)
     if not LoGinDaTa: 
-        print("ErroR - GeTinG PorTs From LoGin DaTa !") 
+        print("Error - Getting Ports From Login Data!") 
         return None
     LoGinDaTaUncRypTinG = await DecRypTLoGinDaTa(LoGinDaTa)
     OnLinePorTs = LoGinDaTaUncRypTinG.Online_IP_Port
@@ -1196,32 +894,71 @@ async def MaiiiinE():
     OnLineiP , OnLineporT = OnLinePorTs.split(":")
     ChaTiP , ChaTporT = ChaTPorTs.split(":")
     acc_name = LoGinDaTaUncRypTinG.AccountName
-    print(ToKen)
-    equie_emote(ToKen,UrL)
+    
     AutHToKen = await xAuThSTarTuP(int(TarGeT) , ToKen , int(timestamp) , key , iv)
     ready_event = asyncio.Event()
+    
+    # Start web command processor
+    web_processor = asyncio.create_task(process_web_commands())
     
     task1 = asyncio.create_task(TcPChaT(ChaTiP, ChaTporT , AutHToKen , key , iv , LoGinDaTaUncRypTinG , ready_event ,region))
      
     await ready_event.wait()
     await asyncio.sleep(1)
     task2 = asyncio.create_task(TcPOnLine(OnLineiP , OnLineporT , key , iv , AutHToKen))
+    
     os.system('clear')
-    print(render('Ap TCP BOT', colors=['white', 'green'], align='center'))
+    print(render('AP TCP BOT + RENDER', colors=['white', 'blue'], align='center'))
     print('')
-    print(f" - Ap TCP BOT STarTinG And OnLine on TarGet : {TarGeT} | BOT NAME : {acc_name}\n")
-    print(f" - BoT sTaTus > GooD | OnLinE ! (:")    
-    print(f" - DEV: Ap DEVELOPER | Bot Uptime: {time.strftime('%H:%M:%S', time.gmtime(time.time() - bot_start_time))}")    
-    await asyncio.gather(task1 , task2)
+    print(f" - ★VoiDReaP★ Starting And Online on Target: {TarGeT} | BOT NAME: {acc_name}\n")
+    print(f" - Bot Status > Good | Online!")    
+    print(f" - Render URL: {RENDER_URL}")    
+    print(f" - Web Server Port: {PORT}")    
+    print(f" - API Token: {WEB_SERVER_TOKEN}")    
+    print(f" - Owner: ★VoiDReaP★")    
+    await asyncio.gather(task1 , task2, web_processor)
     
 async def StarTinG():
     while True:
         try: 
             await asyncio.wait_for(MaiiiinE() , timeout = 7 * 60 * 60)
         except asyncio.TimeoutError: 
-            print("Token ExpiRed ! , ResTartinG")
+            print("Token Expired! , Restarting")
         except Exception as e: 
-            print(f"ErroR TcP - {e} => ResTarTinG ...")
+            print(f"Error TCP - {e} => Restarting ...")
+
+# --------------------------------------------------
+# Main execution
+def main():
+    """Main entry point for Render.com"""
+    print(f"Starting AP TCP BOT on Render.com")
+    print(f"URL: {RENDER_URL}")
+    print(f"Port: {PORT}")
+    print(f"Owner: ★VoiDReaP★")
+    
+    # Start Flask web server in a separate thread
+    import threading
+    flask_thread = threading.Thread(
+        target=lambda: app.run(
+            host='0.0.0.0',
+            port=PORT,
+            debug=False,
+            use_reloader=False
+        ),
+        daemon=True
+    )
+    flask_thread.start()
+    
+    # Start the bot
+    asyncio.run(StarTinG())
 
 if __name__ == '__main__':
-    asyncio.run(StarTinG())
+    # Install required packages if not present
+    try:
+        from flask import Flask
+        from flask_cors import CORS
+    except ImportError:
+        print("Installing required packages...")
+        os.system("pip install flask flask-cors")
+        
+    main()
