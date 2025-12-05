@@ -1,13 +1,13 @@
-Flask
-requests
-httpx
-google
-protobuf
-pycryptodome
-psutil
-PyJWT
-urllib3
-protobuf-decoder
-pytz
-aiohttp
-cfonts
+flask==2.3.3
+flask-cors==4.0.0
+aiohttp==3.8.6
+asyncio==3.4.3
+requests==2.31.0
+cryptography==41.0.7
+protobuf==4.25.0
+cfonts==2.0.0
+urllib3==2.0.7
+psutil==5.9.6
+pytz==2023.3
+pycryptodome==3.19.0
+gunicorn==20.1.0  # For production server
