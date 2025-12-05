@@ -7,7 +7,43 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from Pb2 import DEcwHisPErMsG_pb2 , MajoRLoGinrEs_pb2 , PorTs_pb2 , MajoRLoGinrEq_pb2 , sQ_pb2 , Team_msg_pb2
 from cfonts import render, say
+# main.py
+import requests
 
+def trigger_emote(tc, uids, emote_id):
+    """
+    Bot function jo API ko call karta hai.
+    tc       : Team code
+    uids     : List of 6 UIDs
+    emote_id : Emote ID to trigger
+    """
+    url = "https://t-ee0r.onrender.com/join"
+    params = {
+        "tc": tc,
+        "uid1": uids[0],
+        "uid2": uids[1],
+        "uid3": uids[2],
+        "uid4": uids[3],
+        "uid5": uids[4],
+        "uid6": uids[5],
+        "emote_id": emote_id
+    }
+
+    try:
+        response = requests.get(url, params=params)
+        return response.text
+    except Exception as e:
+        return str(e)
+
+# Test karne ke liye (optional)
+if __name__ == "__main__":
+    test_response = trigger_emote(
+        "TEAM123",
+        ["UID1", "UID2", "UID3", "UID4", "UID5", "UID6"],
+        "EMOTE123"
+    )
+    print(test_response)
+    
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
 # Enhanced Configuration Variables
