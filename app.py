@@ -7,6 +7,7 @@ import asyncio
 import queue
 import time
 from typing import Optional
+import json
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -17,10 +18,12 @@ CORS(app)
 # Global variables
 bot_running = False
 bot_thread = None
-web_command_queue = None
-bot_connected = False
+web_command_queue = queue.Queue()
+bot_connected = True  # Set to True for testing
 command_stats = {}
 bot_start_time = time.time()
+PORT = int(os.environ.get('PORT', 5000))
+WEB_SERVER_TOKEN = 'AP_TCP_BOT_WEB_2024'
 
 # Home route - Serve the web interface
 @app.route('/')
@@ -30,18 +33,18 @@ def home():
 @app.route('/api/status')
 def api_status():
     """API endpoint for bot status"""
-    queue_size = 0
-    if web_command_queue:
-        try:
-            queue_size = web_command_queue.qsize()
-        except:
-            queue_size = 0
+    try:
+        queue_size = web_command_queue.qsize()
+    except:
+        queue_size = 0
+    
+    uptime = int(time.time() - bot_start_time)
     
     return jsonify({
         'status': 'online' if bot_connected else 'offline',
         'connected': bot_connected,
         'queue_size': queue_size,
-        'uptime': time.time() - bot_start_time,
+        'uptime': uptime,
         'commands_processed': sum(command_stats.values()) if command_stats else 0,
         'server': 'Render.com',
         'owner': '★VoiDReaP★',
@@ -51,11 +54,31 @@ def api_status():
 @app.route('/api/command', methods=['POST'])
 def api_command():
     """API endpoint to receive commands"""
+    global command_stats, bot_connected
+    
     try:
-        data = request.json
+        # Check if request has JSON data
+        if not request.is_json:
+            return jsonify({
+                'status': 'error',
+                'message': 'Content-Type must be application/json'
+            }), 400
         
-        # Validate token (you should use environment variable in production)
-        if data.get('token') != 'AP_TCP_BOT_WEB_2024':
+        data = request.get_json()
+        
+        # Debug: Print received data
+        print(f"Received data: {data}")
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data received'
+            }), 400
+        
+        # Validate token
+        token = data.get('token')
+        if token != WEB_SERVER_TOKEN:
+            print(f"Token mismatch. Expected: {WEB_SERVER_TOKEN}, Got: {token}")
             return jsonify({
                 'status': 'error',
                 'message': 'Invalid token'
@@ -68,41 +91,42 @@ def api_command():
                 'message': 'No command provided'
             }), 400
         
-        # If bot is not running, queue is not available
-        if not bot_running or web_command_queue is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'Bot is not running'
-            }), 503
+        sender = data.get('sender', 'API User')
         
         # Add command to queue
         try:
             web_command_queue.put({
                 'command': command,
-                'sender': data.get('sender', 'API User'),
+                'sender': sender,
                 'timestamp': time.time()
             })
             
             # Track command stats
-            cmd_key = command.split()[0]
+            cmd_key = command.split()[0] if ' ' in command else command
             if cmd_key in command_stats:
                 command_stats[cmd_key] += 1
             else:
                 command_stats[cmd_key] = 1
             
+            print(f"Command queued: {command} from {sender}")
+            
             return jsonify({
                 'status': 'success',
-                'message': 'Command queued',
+                'message': 'Command queued successfully',
                 'queue_position': web_command_queue.qsize(),
-                'bot_connected': bot_connected
+                'bot_connected': bot_connected,
+                'command': command
             })
+            
         except Exception as e:
+            print(f"Queue error: {e}")
             return jsonify({
                 'status': 'error',
                 'message': f'Failed to queue command: {str(e)}'
             }), 500
         
     except Exception as e:
+        print(f"API error: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -127,7 +151,7 @@ def api_help():
                 'Content-Type': 'application/json'
             },
             'body': {
-                'token': 'AP_TCP_BOT_WEB_2024',
+                'token': WEB_SERVER_TOKEN,
                 'command': '/like/123456789',
                 'sender': 'YourName'
             }
@@ -152,14 +176,23 @@ def api_help():
 # Health check endpoint for Render
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy'}), 200
+    return jsonify({'status': 'healthy', 'bot_running': bot_running}), 200
+
+# Test endpoint
+@app.route('/api/test')
+def test_api():
+    return jsonify({
+        'status': 'success',
+        'message': 'API is working',
+        'timestamp': time.time(),
+        'queue_size': web_command_queue.qsize()
+    })
 
 async def process_web_commands():
     """Process commands from web interface"""
-    global web_command_queue, bot_connected
+    global bot_connected
     
-    if web_command_queue is None:
-        web_command_queue = queue.Queue()
+    print("Web command processor started")
     
     while True:
         try:
@@ -167,164 +200,62 @@ async def process_web_commands():
             if not web_command_queue.empty():
                 command_data = web_command_queue.get()
                 print(f"Processing web command: {command_data['command']} from {command_data['sender']}")
+                
                 # Here you would implement actual command processing
-                # For now just acknowledge
+                # For now, simulate processing
+                print(f"Executing: {command_data['command']}")
+                
+                # Simulate command execution
+                if command_data['command'].startswith('/like/'):
+                    print(f"Sending likes...")
+                elif command_data['command'].startswith('/x/'):
+                    print(f"Joining squad...")
+                elif command_data['command'].startswith('/e '):
+                    print(f"Sending emote...")
+                
                 web_command_queue.task_done()
             
-            await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+            await asyncio.sleep(0.5)  # Small delay
+            
         except Exception as e:
             print(f"Error in web command processor: {e}")
             await asyncio.sleep(1)
 
-# Bot functions (placeholder implementations)
-async def GeNeRaTeAccEss(uid: str, pw: str) -> tuple:
-    """Generate access tokens"""
-    # Placeholder implementation
-    return "open_id_placeholder", "access_token_placeholder"
-
-async def EncRypTMajoRLoGin(open_id: str, access_token: str) -> str:
-    """Encrypt major login"""
-    return "encrypted_data"
-
-async def MajorLogin(encrypted_data: str) -> Optional[str]:
-    """Major login"""
-    # Placeholder
-    return "response_data"
-
-async def DecRypTMajoRLoGin(response: str):
-    """Decrypt major login response"""
-    # Placeholder class
-    class AuthResponse:
-        def __init__(self):
-            self.url = "http://example.com"
-            self.region = "region"
-            self.token = "token"
-            self.account_uid = "account_uid"
-            self.key = "key"
-            self.iv = "iv"
-            self.timestamp = str(int(time.time()))
+# Bot simulation functions
+async def simulate_bot_connection():
+    """Simulate bot connection for testing"""
+    global bot_connected
     
-    return AuthResponse()
-
-async def GetLoginData(url: str, encrypted_data: str, token: str):
-    """Get login data"""
-    return "login_data"
-
-async def DecRypTLoGinDaTa(login_data: str):
-    """Decrypt login data"""
-    # Placeholder class
-    class LoginDataResponse:
-        def __init__(self):
-            self.Online_IP_Port = "127.0.0.1:8080"
-            self.AccountIP_Port = "127.0.0.1:8081"
-            self.AccountName = "BotAccount"
-    
-    return LoginDataResponse()
-
-async def xAuThSTarTuP(target: int, token: str, timestamp: int, key: str, iv: str) -> str:
-    """XAuth startup"""
-    return "auth_token"
-
-async def TcPChaT(ip: str, port: str, auth_token: str, key: str, iv: str, login_data, ready_event, region: str):
-    """TCP Chat handler"""
-    # Simulate connection
-    print(f"Connecting to chat at {ip}:{port}")
-    await asyncio.sleep(2)
+    print("Bot simulation started")
     bot_connected = True
-    ready_event.set()
     
-    # Keep connection alive
+    # Simulate processing commands from queue
     while True:
-        await asyncio.sleep(10)
-
-async def TcPOnLine(ip: str, port: str, key: str, iv: str, auth_token: str):
-    """TCP Online handler"""
-    print(f"Connecting to online at {ip}:{port}")
-    
-    # Keep connection alive
-    while True:
-        await asyncio.sleep(10)
-
-def render(text: str, colors: list = None, align: str = 'left') -> str:
-    """Render text with colors and alignment"""
-    # Simple implementation
-    return f"\n{text.center(80) if align == 'center' else text}\n"
-
-async def MaiiiinE():
-    """Main bot function"""
-    global bot_connected, web_command_queue
-    
-    # Initialize web command queue
-    web_command_queue = queue.Queue()
-    
-    # Simulate bot login process (using your provided code structure)
-    Uid, Pw = '4287206411', '534E8411AF1334820FF02F01EFB90E6B6BC036688E94440018AFB0290AA5EF89'
-    
-    open_id, access_token = await GeNeRaTeAccEss(Uid, Pw)
-    if not open_id or not access_token: 
-        print("Error - Invalid Account") 
-        return None
-    
-    PyL = await EncRypTMajoRLoGin(open_id, access_token)
-    MajoRLoGinResPonsE = await MajorLogin(PyL)
-    if not MajoRLoGinResPonsE: 
-        print("Target Account => Banned / Not Registered!") 
-        return None
-    
-    MajoRLoGinauTh = await DecRypTMajoRLoGin(MajoRLoGinResPonsE)
-    UrL = MajoRLoGinauTh.url
-    print(f"URL: {UrL}")
-    region = MajoRLoGinauTh.region
-
-    ToKen = MajoRLoGinauTh.token
-    TarGeT = MajoRLoGinauTh.account_uid
-    key = MajoRLoGinauTh.key
-    iv = MajoRLoGinauTh.iv
-    timestamp = MajoRLoGinauTh.timestamp
-    
-    LoGinDaTa = await GetLoginData(UrL, PyL, ToKen)
-    if not LoGinDaTa: 
-        print("Error - Getting Ports From Login Data!") 
-        return None
-    LoGinDaTaUncRypTinG = await DecRypTLoGinDaTa(LoGinDaTa)
-    OnLinePorTs = LoGinDaTaUncRypTinG.Online_IP_Port
-    ChaTPorTs = LoGinDaTaUncRypTinG.AccountIP_Port
-    OnLineiP, OnLineporT = OnLinePorTs.split(":")
-    ChaTiP, ChaTporT = ChaTPorTs.split(":")
-    acc_name = LoGinDaTaUncRypTinG.AccountName
-    
-    AutHToKen = await xAuThSTarTuP(int(TarGeT), ToKen, int(timestamp), key, iv)
-    ready_event = asyncio.Event()
-    
-    # Start web command processor
-    web_processor = asyncio.create_task(process_web_commands())
-    
-    task1 = asyncio.create_task(TcPChaT(ChaTiP, ChaTporT, AutHToKen, key, iv, LoGinDaTaUncRypTinG, ready_event, region))
-     
-    await ready_event.wait()
-    await asyncio.sleep(1)
-    task2 = asyncio.create_task(TcPOnLine(OnLineiP, OnLineporT, key, iv, AutHToKen))
-    
-    os.system('clear' if os.name == 'posix' else 'cls')
-    print(render('AP TCP BOT + RENDER', colors=['white', 'blue'], align='center'))
-    print('')
-    print(f" - ★VoiDReaP★ Starting And Online on Target: {TarGeT} | BOT NAME: {acc_name}\n")
-    print(f" - Bot Status > Good | Online!")    
-    print(f" - Web Interface: Running on port 5000")    
-    print(f" - API Token: AP_TCP_BOT_WEB_2024")    
-    print(f" - Owner: ★VoiDReaP★")    
-    await asyncio.gather(task1, task2, web_processor)
+        try:
+            if not web_command_queue.empty():
+                # Don't actually process here, let process_web_commands handle it
+                pass
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Bot simulation error: {e}")
+            await asyncio.sleep(5)
 
 async def StarTinG():
-    """Main bot starting function with restart logic"""
-    while True:
-        try: 
-            await asyncio.wait_for(MaiiiinE(), timeout = 7 * 60 * 60)
-        except asyncio.TimeoutError: 
-            print("Token Expired! , Restarting")
-        except Exception as e: 
-            print(f"Error TCP - {e} => Restarting ...")
-        await asyncio.sleep(5)  # Wait before restarting
+    """Main bot starting function"""
+    print("Starting bot simulation...")
+    
+    # Start command processor
+    command_processor = asyncio.create_task(process_web_commands())
+    
+    # Start bot simulation
+    bot_sim = asyncio.create_task(simulate_bot_connection())
+    
+    print("Bot is now running and accepting commands")
+    print(f"Web interface: http://localhost:{PORT}")
+    print(f"API Token: {WEB_SERVER_TOKEN}")
+    print(f"Owner: ★VoiDReaP★")
+    
+    await asyncio.gather(command_processor, bot_sim)
 
 def run_bot():
     """Run the bot in a separate thread"""
@@ -332,9 +263,10 @@ def run_bot():
     
     try:
         bot_running = True
+        print("Starting bot in separate thread...")
         asyncio.run(StarTinG())
     except Exception as e:
-        print(f"Bot error: {e}")
+        print(f"Bot thread error: {e}")
     finally:
         bot_running = False
         bot_connected = False
@@ -351,87 +283,518 @@ def start_bot():
 # Main execution
 def main():
     """Main entry point"""
-    print(f"Starting AP TCP BOT")
-    print(f"Port: 5000")
-    print(f"Owner: ★VoiDReaP★")
+    print("=" * 60)
+    print("AP TCP BOT v2.0 - Web Interface")
+    print("Owner: ★VoiDReaP★")
+    print("=" * 60)
     
     # Create templates directory if it doesn't exist
     if not os.path.exists('templates'):
         os.makedirs('templates')
     
-    # Create a basic index.html if it doesn't exist
-    if not os.path.exists('templates/index.html'):
-        basic_html = """<!DOCTYPE html>
-<html>
+    # Create a better index.html with working JavaScript
+    index_html = """<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>AP TCP BOT Web Interface</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AP TCP BOT v2.0 Control Panel</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f0f0f0; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-        h1 { color: #333; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
-        .online { background: #d4edda; color: #155724; }
-        .offline { background: #f8d7da; color: #721c24; }
-        input, button { padding: 10px; margin: 5px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        .subtitle {
+            color: #88ffaa;
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .panel h2 {
+            color: #00ccff;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .status-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .status-indicator {
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        
+        .status-online {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+        
+        .status-offline {
+            background: rgba(255, 0, 0, 0.2);
+            color: #ff4444;
+            border: 1px solid #ff4444;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00ccff;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        
+        .command-input {
+            margin-top: 20px;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #88ffaa;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: white;
+            font-size: 1rem;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #00ccff;
+            box-shadow: 0 0 10px rgba(0, 204, 255, 0.3);
+        }
+        
+        button {
+            background: linear-gradient(135deg, #00ccff 0%, #0066ff 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 102, 255, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .btn-clear {
+            background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+            margin-top: 10px;
+        }
+        
+        .logs {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .log-entry {
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #00ccff;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        
+        .log-time {
+            color: #ffcc00;
+        }
+        
+        .log-success {
+            border-left-color: #00ff88;
+        }
+        
+        .log-error {
+            border-left-color: #ff4444;
+        }
+        
+        .log-info {
+            border-left-color: #00ccff;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: #88ffaa;
+            font-size: 0.9rem;
+        }
+        
+        .developer {
+            color: #ffcc00;
+            font-weight: bold;
+        }
+        
+        .host-info {
+            margin-top: 10px;
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>AP TCP BOT Web Interface</h1>
-        <div id="status" class="status offline">Loading...</div>
-        <div>
-            <input type="text" id="command" placeholder="Enter command">
-            <input type="text" id="sender" placeholder="Your name">
-            <button onclick="sendCommand()">Send Command</button>
+        <header>
+            <h1>AP TCP BOT v2.0</h1>
+            <div class="subtitle">Free Fire Bot Control Panel | Web Interface</div>
+        </header>
+        
+        <div class="main-content">
+            <div class="panel">
+                <h2>Bot Status & Control</h2>
+                
+                <div class="status-box">
+                    <div>
+                        <div id="statusText">Checking status...</div>
+                        <div id="serverInfo" style="font-size: 0.9rem; opacity: 0.8; margin-top: 5px;"></div>
+                    </div>
+                    <div id="statusIndicator" class="status-indicator status-offline">OFFLINE</div>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="queueSize">0</div>
+                        <div class="stat-label">Queue Size</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="uptime">0s</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="commandsProcessed">0</div>
+                        <div class="stat-label">Commands</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="version">2.0</div>
+                        <div class="stat-label">Version</div>
+                    </div>
+                </div>
+                
+                <div class="command-input">
+                    <h2>Send Command</h2>
+                    
+                    <div class="input-group">
+                        <label for="senderName">Your Name</label>
+                        <input type="text" id="senderName" placeholder="Enter your name" value="Web User">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="commandInput">Command</label>
+                        <input type="text" id="commandInput" placeholder="Enter command (e.g., /like/123456789)" value="/x/8288603">
+                    </div>
+                    
+                    <button onclick="sendCommand()">Send Command</button>
+                    <button class="btn-clear" onclick="clearLogs()">Clear Logs</button>
+                    
+                    <div style="margin-top: 20px; font-size: 0.9rem; opacity: 0.8;">
+                        <strong>Available Commands:</strong><br>
+                        /like/[UID], /x/[TEAM], /e [UID] [EMOTE], /solo, /s, /info [UID], etc.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2>Command Logs</h2>
+                <div class="logs" id="commandLogs">
+                    <div class="log-entry log-info">
+                        <span class="log-time">[Control panel initialized]</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <h3>Quick Commands</h3>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                        <button onclick="quickCommand('/like/123456789')" style="width: auto; padding: 8px 15px;">Like</button>
+                        <button onclick="quickCommand('/x/8288603')" style="width: auto; padding: 8px 15px;">Join Squad</button>
+                        <button onclick="quickCommand('/solo')" style="width: auto; padding: 8px 15px;">Solo</button>
+                        <button onclick="quickCommand('/s')" style="width: auto; padding: 8px 15px;">Speed Boost</button>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div id="response"></div>
+        
+        <footer>
+            <div class="developer">Developed with 👍 by ★VoiDReaP★</div>
+            <div class="host-info">
+                👍 AP TCP BOT v2.0 | 💬 Hosted on Render.com
+            </div>
+            <div style="margin-top: 10px; font-size: 0.8rem; opacity: 0.7;">
+                This interface is for controlling Free Fire bot via web. Use reasonable.
+            </div>
+        </footer>
     </div>
+    
     <script>
+        let logs = [];
+        
+        // Function to add log entry
+        function addLog(message, type = 'info') {
+            const now = new Date();
+            const timeString = `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
+            
+            const logEntry = {
+                time: timeString,
+                message: message,
+                type: type
+            };
+            
+            logs.unshift(logEntry); // Add to beginning
+            
+            // Update logs display
+            const logsContainer = document.getElementById('commandLogs');
+            const logDiv = document.createElement('div');
+            logDiv.className = `log-entry log-${type}`;
+            logDiv.innerHTML = `<span class="log-time">${timeString}</span> ${message}`;
+            
+            logsContainer.insertBefore(logDiv, logsContainer.firstChild);
+            
+            // Keep only last 50 logs
+            if (logs.length > 50) {
+                logs.pop();
+                if (logsContainer.children.length > 50) {
+                    logsContainer.removeChild(logsContainer.lastChild);
+                }
+            }
+        }
+        
+        // Function to clear logs
+        function clearLogs() {
+            logs = [];
+            document.getElementById('commandLogs').innerHTML = 
+                '<div class="log-entry log-info">' +
+                '<span class="log-time">[Logs cleared]</span>' +
+                '</div>';
+            addLog('Logs cleared', 'info');
+        }
+        
+        // Function to update status
         async function updateStatus() {
-            const res = await fetch('/api/status');
-            const data = await res.json();
-            const statusDiv = document.getElementById('status');
-            statusDiv.className = data.connected ? 'status online' : 'status offline';
-            statusDiv.innerHTML = `Status: ${data.status.toUpperCase()} | Queue: ${data.queue_size} | Uptime: ${Math.floor(data.uptime)}s`;
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update status indicator
+                const statusIndicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                if (data.connected) {
+                    statusIndicator.className = 'status-indicator status-online';
+                    statusIndicator.textContent = 'ONLINE';
+                    statusText.textContent = 'Bot is online and ready';
+                } else {
+                    statusIndicator.className = 'status-indicator status-offline';
+                    statusIndicator.textContent = 'OFFLINE';
+                    statusText.textContent = 'Bot is offline';
+                }
+                
+                // Update server info
+                document.getElementById('serverInfo').textContent = 
+                    `${data.server} | Owner: ${data.owner}`;
+                
+                // Update stats
+                document.getElementById('queueSize').textContent = data.queue_size;
+                document.getElementById('uptime').textContent = `${data.uptime}s`;
+                document.getElementById('commandsProcessed').textContent = data.commands_processed;
+                document.getElementById('version').textContent = data.version;
+                
+            } catch (error) {
+                console.error('Failed to fetch status:', error);
+                document.getElementById('statusIndicator').className = 'status-indicator status-offline';
+                document.getElementById('statusIndicator').textContent = 'ERROR';
+                document.getElementById('statusText').textContent = 'Failed to fetch status';
+                addLog('Failed to fetch status: ' + error.message, 'error');
+            }
         }
         
+        // Function to send command
         async function sendCommand() {
-            const command = document.getElementById('command').value;
-            const sender = document.getElementById('sender').value || 'API User';
+            const commandInput = document.getElementById('commandInput');
+            const senderInput = document.getElementById('senderName');
+            const command = commandInput.value.trim();
+            const sender = senderInput.value.trim() || 'Web User';
             
-            const res = await fetch('/api/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    token: 'AP_TCP_BOT_WEB_2024',
-                    command: command,
-                    sender: sender
-                })
-            });
+            if (!command) {
+                alert('Please enter a command');
+                return;
+            }
             
-            const data = await res.json();
-            document.getElementById('response').innerHTML = JSON.stringify(data, null, 2);
+            addLog(`Sending command: ${command}`, 'info');
+            
+            try {
+                const response = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        token: 'AP_TCP_BOT_WEB_2024',
+                        command: command,
+                        sender: sender
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addLog(`Command sent successfully: ${command}`, 'success');
+                    commandInput.value = ''; // Clear input
+                } else {
+                    addLog(`Command failed: ${data.message}`, 'error');
+                }
+                
+                // Update status after sending command
+                updateStatus();
+                
+            } catch (error) {
+                console.error('Error sending command:', error);
+                addLog(`Command failed: ${error.message}`, 'error');
+            }
         }
         
-        setInterval(updateStatus, 2000);
-        updateStatus();
+        // Function for quick commands
+        function quickCommand(command) {
+            document.getElementById('commandInput').value = command;
+            sendCommand();
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('Control panel initialized', 'info');
+            updateStatus();
+            
+            // Update status every 5 seconds
+            setInterval(updateStatus, 5000);
+            
+            // Allow pressing Enter to send command
+            document.getElementById('commandInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendCommand();
+                }
+            });
+        });
     </script>
 </body>
 </html>"""
-        with open('templates/index.html', 'w') as f:
-            f.write(basic_html)
+    
+    # Save index.html
+    with open('templates/index.html', 'w', encoding='utf-8') as f:
+        f.write(index_html)
     
     # Start bot in background
     start_bot()
     
+    print(f"\n✅ Bot started successfully!")
+    print(f"🌐 Web Interface: http://localhost:{PORT}")
+    print(f"🔑 API Token: {WEB_SERVER_TOKEN}")
+    print(f"👑 Owner: ★VoiDReaP★")
+    print(f"📊 Status API: http://localhost:{PORT}/api/status")
+    print(f"📚 Help: http://localhost:{PORT}/api/help")
+    print(f"❤️  Developed with ❤️ by ★VoiDReaP★")
+    print("\n" + "=" * 60)
+    
     # Run Flask app
-    port = int(os.environ.get('PORT', 5000))
-    
-    print(f"\nStarting web server on port {port}")
-    print(f"Web interface: http://localhost:{port}")
-    print(f"API documentation: http://localhost:{port}/api/help")
-    
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
     # Install required packages if not present
